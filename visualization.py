@@ -106,7 +106,8 @@ class Map:
     """
     
     def __init__(self, width: int = None, height: int = None, image_path: str = None, 
-                 rotation: int = 0, flip_horizontal: bool = False, flip_vertical: bool = False):
+                 rotation: int = 0, flip_horizontal: bool = False, flip_vertical: bool = False,
+                 target_width: int = 1920, target_height: int = 1080):
         """
         Initialize the map with optional image and transformations.
         
@@ -117,22 +118,26 @@ class Map:
             rotation (int): Rotation angle in degrees (90, 180, 270, -90)
             flip_horizontal (bool): Whether to flip image horizontally (mirror)
             flip_vertical (bool): Whether to flip image vertically (upside down)
+            target_width (int): Target width for scaling (default 1920)
+            target_height (int): Target height for scaling (default 1080)
         """
         self.rotation = rotation
         self.flip_horizontal = flip_horizontal
         self.flip_vertical = flip_vertical
+        self.target_width = target_width
+        self.target_height = target_height
         self.active_drones: list[Drone] = []  # Track all active drones
         self.drone_counter: int = 0  # Counter for drone IDs
         self.predictor = Prediction()  # Initialize prediction system
         
         if image_path:
             self.load_image(image_path)
-            self.width = width if width is not None else float(self.image.shape[1])
-            self.height = height if height is not None else float(self.image.shape[0])
+            self.width = float(self.target_width)
+            self.height = float(self.target_height)
         else:
-            self.width = width
-            self.height = height
-            self.grid = np.zeros((height, width))
+            self.width = width if width is not None else self.target_width
+            self.height = height if height is not None else self.target_height
+            self.grid = np.zeros((int(self.height), int(self.width)))
             self.image = None
     
     def load_image(self, image_path: str):
@@ -140,7 +145,7 @@ class Map:
         Load and process an image file with specified transformations.
         
         Loads the image, applies rotation and flipping transformations,
-        converts to grayscale, and stores as numpy array.
+        converts to grayscale, scales to target resolution, and stores as numpy array.
         
         Args:
             image_path (str): Path to the image file
@@ -158,6 +163,9 @@ class Map:
         
         if self.flip_vertical:
             img = img.transpose(Image.FLIP_TOP_BOTTOM)
+        
+        # Scale image to target resolution (1920x1080)
+        img = img.resize((self.target_width, self.target_height), Image.Resampling.LANCZOS)
         
         img_array = np.array(img.convert('L'))
         self.image = img_array
@@ -294,9 +302,9 @@ class Map:
             drone.is_active = False
     
     def animate_multiple_drones(self, num_drones: int = 5, spawn_position: str = 'right', 
-                               interval: float = 0.02, show_trajectory: bool = True, 
-                               show_direction: bool = True, show_prediction: bool = True,
-                               speed: float = 10):
+                            interval: float = 0.02, show_trajectory: bool = True, 
+                            show_direction: bool = True, show_prediction: bool = True,
+                            speed: float = 10):
         """
         Animate multiple drones simultaneously with trajectory prediction.
         
@@ -315,7 +323,9 @@ class Map:
             speed (float): Base movement speed per step
         """
         plt.ion()  # Enable interactive mode
-        fig, ax = plt.subplots(figsize=(12, 10))
+        # Set figure size to 12, 9 for best viewing
+        fig, ax = plt.subplots(figsize=(12, 9))
+        fig.canvas.manager.set_window_title('Drone Trajectory Monitoring System')
         
         # Variables to track statistics
         total_moves = 0
@@ -353,18 +363,18 @@ class Map:
             try:
                 ax.clear()
                 
-                # Display image
-                ax.imshow(self.grid, cmap='gray', extent=[0, self.width, 0, self.height])
+                # Display image - full 1920x1080 extent
+                ax.imshow(self.grid, cmap='gray', extent=[0, self.width, 0, self.height], aspect='auto')
                 
                 # Draw all previous trajectories (from removed drones)
                 for traj_data in all_trajectories:
                     trajectory_array = np.array(traj_data['trajectory'])
                     # Draw line
                     ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
-                           color=traj_data['color'], alpha=0.4, linewidth=3, linestyle='-')
+                        color=traj_data['color'], alpha=0.4, linewidth=3, linestyle='-')
                     # Draw dots at each position
                     ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
-                           'o', color=traj_data['color'], markersize=4, alpha=0.3)
+                        'o', color=traj_data['color'], markersize=4, alpha=0.3)
                 
                 # Check if any drones are still active
                 any_active = False
@@ -394,8 +404,8 @@ class Map:
                         total_moves += 1
                         drone_data['move_index'] = move_index + 1
                         
-                        # Check if drone is out of bounds
-                        if drone.is_out_of_bounds(self.width, self.height, margin=0):
+                        # Check if drone is out of bounds or crossed the invisible barrier at x=750
+                        if drone.is_out_of_bounds(self.width, self.height, margin=0) or drone.coordinate[0] <= 750:
                             # Save trajectory before removing
                             all_trajectories.append({
                                 'trajectory': drone.trajectory.copy(),
@@ -410,10 +420,10 @@ class Map:
                             trajectory_array = np.array(drone.trajectory)
                             # Draw line
                             ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
-                                   color=drone.drone_color, alpha=0.6, linewidth=2)
+                                color=drone.drone_color, alpha=0.6, linewidth=2)
                             # Draw dots at each position
                             ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
-                                   'o', color=drone.drone_color, markersize=4, alpha=0.5)
+                                'o', color=drone.drone_color, markersize=4, alpha=0.5)
                         
                         # Show prediction if enabled and drone has enough history
                         if show_prediction and len(drone.trajectory) >= 5:
@@ -427,13 +437,13 @@ class Map:
                                 
                                 # Draw predicted trajectory as dashed line
                                 ax.plot(pred_x, pred_y, 
-                                       color=drone.drone_color, alpha=0.4, 
-                                       linewidth=2, linestyle=':', marker='x', markersize=8)
+                                    color=drone.drone_color, alpha=0.4, 
+                                    linewidth=2, linestyle=':', marker='x', markersize=8)
                         
                         # Draw drone
                         ax.plot(drone.coordinate[0], drone.coordinate[1], 
-                               'o', color=drone.drone_color, markersize=12, 
-                               markeredgecolor='white', markeredgewidth=2)
+                            'o', color=drone.drone_color, markersize=12, 
+                            markeredgecolor='white', markeredgewidth=2)
                         
                         # Show direction arrow if enabled
                         if show_direction:
@@ -450,28 +460,36 @@ class Map:
                 
                 # Draw boundaries
                 boundary_rect = plt.Rectangle((0, 0), self.width, self.height, 
-                                             fill=False, edgecolor='green', linewidth=3, 
-                                             linestyle='--')
+                                            fill=False, edgecolor='green', linewidth=3, 
+                                            linestyle='--')
                 ax.add_patch(boundary_rect)
                 
-                # Set display parameters
-                ax.set_xlim(-100, self.width + 100)
-                ax.set_ylim(-100, self.height + 100)
-                ax.set_xlabel("X Coordinate")
-                ax.set_ylabel("Y Coordinate")
+                # Draw vertical line at x=1380
+                ax.axvline(x=1380, color='red', linewidth=2, linestyle='-', alpha=0.7, label='x=1380')
+                
+                # Draw invisible barrier at x=750 (optional - for visualization during development)
+                # ax.axvline(x=750, color='orange', linewidth=2, linestyle='--', alpha=0.3, label='Barrier x=750')
+                
+                # Set display parameters - no extra margin, full screen
+                ax.set_xlim(0, self.width)
+                ax.set_ylim(0, self.height)
+                ax.set_xlabel("X Coordinate", fontsize=10)
+                ax.set_ylabel("Y Coordinate", fontsize=10)
                 
                 # Update title based on animation state
                 if animation_complete:
                     ax.set_title(f"Drone Trajectory Analysis - Completed\nTotal Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nPress 'q' to quit", 
-                               fontsize=14, fontweight='bold', color='green')
+                            fontsize=14, fontweight='bold', color='green')
                 else:
                     # Count active drones
                     active_count = sum(1 for d in drones_data if d['active'])
                     ax.set_title(f"Drone Trajectory Monitoring System\nActive Drones: {active_count}/{num_drones} | Total Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nPress 'q' to quit", 
-                               fontsize=12, fontweight='bold')
+                            fontsize=12, fontweight='bold')
                 
                 ax.grid(True, alpha=0.3)
                 
+                # Tight layout to maximize display area
+                plt.tight_layout()
                 plt.pause(interval)
                 
                 # Check if window is still open
@@ -646,15 +664,17 @@ def generate_flight_path(pattern: str, num_moves: int = 100, speed: float = 8.0,
 if __name__ == "__main__":
     image_path = "/Users/sansrozpierducha/hackathon/polish_map.png" 
     
+    # Initialize map with 1920x1080 resolution
     map_with_image = Map(image_path=image_path, rotation=180, 
-                        flip_horizontal=True, flip_vertical=True)
+                        flip_horizontal=True, flip_vertical=True,
+                        target_width=1920, target_height=1080)
     
     # Animate 5 drones simultaneously with trajectory prediction
     # Slower speed (5 instead of 10) and slower interval (0.05 instead of 0.02)
     map_with_image.animate_multiple_drones(num_drones=5,
-                                          spawn_position='right', 
-                                          interval=0.05,
-                                          show_trajectory=True, 
-                                          show_direction=True,
-                                          show_prediction=True,
-                                          speed=25)
+                                        spawn_position='right', 
+                                        interval=0.05,
+                                        show_trajectory=True, 
+                                        show_direction=True,
+                                        show_prediction=True,
+                                        speed=25)
