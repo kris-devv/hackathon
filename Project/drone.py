@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from fixed_sized_queue import FixedSizeQueue
-from numpy import polyfit
 
 class Drone:
     """
@@ -108,6 +107,6 @@ class Drone:
             return None
 
         if len(points) == 2:
-            return polyfit([p[0] for p in points], [p[1] for p in points], 1)
+            return np.polyfit([p[0] for p in points], [p[1] for p in points], 1)
         else:
-            return polyfit([p[0] for p in points], [p[1] for p in points], 2)
+            return np.polyfit([p[0] for p in points], [p[1] for p in points], 2)

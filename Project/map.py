@@ -142,7 +142,7 @@ class Map:
                                speed: float = 10, barrier_x: float = 750, 
                                vertical_line_x: float = 1380):
         """
-        Animate multiple drones simultaneously with trajectory prediction.
+        Animate multiple drones simultaneously with polynomial trajectory prediction.
         """
         plt.ion()
         fig, ax = plt.subplots(figsize=(14, 8))
@@ -181,6 +181,7 @@ class Map:
                 ax.clear()
                 ax.imshow(self.grid, cmap='gray', extent=[0, self.width, 0, self.height], aspect='auto')
                 
+                # Draw past trajectories
                 for traj_data in all_trajectories:
                     trajectory_array = np.array(traj_data['trajectory'])
                     ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
@@ -212,7 +213,31 @@ class Map:
                         total_moves += 1
                         drone_data['move_index'] = move_index + 1
                         
+                        # Check boundaries and barrier
                         if drone.is_out_of_bounds(self.width, self.height, margin=0) or drone.coordinate[0] <= barrier_x:
+                            # Print final trajectory information before removing
+                            print(f"\n{'*'*60}")
+                            print(f"DRONE REMOVED (color: {drone.drone_color})")
+                            print(f"Final position: ({drone.coordinate[0]:.2f}, {drone.coordinate[1]:.2f})")
+                            print(f"Total trajectory points: {len(drone.trajectory)}")
+                            print(f"Reason: {'Out of bounds' if drone.is_out_of_bounds(self.width, self.height, margin=0) else f'Crossed barrier at x={barrier_x}'}")
+                            
+                            # Print trajectory summary
+                            if len(drone.trajectory) >= 2:
+                                start_pos = drone.trajectory[0]
+                                end_pos = drone.trajectory[-1]
+                                distance = np.sqrt((end_pos[0] - start_pos[0])**2 + (end_pos[1] - start_pos[1])**2)
+                                print(f"Start position: ({start_pos[0]:.2f}, {start_pos[1]:.2f})")
+                                print(f"End position: ({end_pos[0]:.2f}, {end_pos[1]:.2f})")
+                                print(f"Total distance traveled: {distance:.2f} units")
+                            
+                            # Print last few trajectory points
+                            print(f"Last 5 trajectory points:")
+                            for i, point in enumerate(drone.trajectory[-5:], 1):
+                                print(f"  {i}. ({point[0]:.2f}, {point[1]:.2f})")
+                            
+                            print(f"{'*'*60}\n")
+                            
                             all_trajectories.append({
                                 'trajectory': drone.trajectory.copy(),
                                 'color': drone.drone_color
@@ -221,6 +246,7 @@ class Map:
                             drone_data['active'] = False
                             continue
                         
+                        # Show current trajectory
                         if show_trajectory and len(drone.trajectory) > 1:
                             trajectory_array = np.array(drone.trajectory)
                             ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
@@ -228,22 +254,61 @@ class Map:
                             ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
                                    'o', color=drone.drone_color, markersize=4, alpha=0.5)
                         
-                        if show_prediction and len(drone.trajectory) >= 5:
+                        # Show polynomial prediction
+                        if show_prediction and len(drone.trajectory) >= 3:
                             drone_df = drone.get_trajectory_dataframe()
-                            prediction = self.predictor.predict(drone_df)
+                            prediction = self.predictor.predict(drone_df, steps_ahead=5)
                             
                             if prediction and 'points' in prediction:
                                 pred_points = prediction['points']
                                 pred_x = [p['x'] for p in pred_points]
                                 pred_y = [p['y'] for p in pred_points]
+                                
+                                # Print prediction information
+                                print(f"\n{'='*60}")
+                                print(f"Drone (color: {drone.drone_color}) at position: ({drone.coordinate[0]:.2f}, {drone.coordinate[1]:.2f})")
+                                print(f"Current trajectory length: {len(drone.trajectory)} points")
+                                
+                                if 'coefficients' in prediction:
+                                    coeffs = prediction['coefficients']
+                                    if len(coeffs) == 2:
+                                        print(f"Polynomial type: Linear (y = {coeffs[0]:.4f}x + {coeffs[1]:.4f})")
+                                    else:
+                                        print(f"Polynomial type: Quadratic (y = {coeffs[0]:.4f}x² + {coeffs[1]:.4f}x + {coeffs[2]:.4f})")
+                                    print(f"Coefficients: {coeffs}")
+                                
+                                print(f"Predicted points:")
+                                for i, point in enumerate(pred_points, 1):
+                                    print(f"  {i}. x={point['x']:.2f}, y={point['y']:.2f}")
+                                print(f"{'='*60}\n")
+                                
+                                # Draw predicted trajectory as dotted line with larger markers
                                 ax.plot(pred_x, pred_y, 
-                                       color=drone.drone_color, alpha=0.4, 
-                                       linewidth=2, linestyle=':', marker='x', markersize=8)
+                                       color=drone.drone_color, alpha=0.5, 
+                                       linewidth=2, linestyle=':', marker='x', markersize=10,
+                                       markeredgewidth=2, label=f'Prediction (poly)')
+                                
+                                # Draw polynomial curve if coefficients available
+                                if 'coefficients' in prediction:
+                                    from numpy import poly1d
+                                    coeffs = prediction['coefficients']
+                                    poly_func = poly1d(coeffs)
+                                    
+                                    # Generate smooth curve
+                                    x_range = np.linspace(drone.trajectory[-5][0] if len(drone.trajectory) >= 5 else drone.trajectory[0][0], 
+                                                         pred_x[-1], 50)
+                                    y_range = poly_func(x_range)
+                                    
+                                    ax.plot(x_range, y_range, 
+                                           color=drone.drone_color, alpha=0.3, 
+                                           linewidth=1, linestyle='--')
                         
+                        # Draw drone
                         ax.plot(drone.coordinate[0], drone.coordinate[1], 
                                'o', color=drone.drone_color, markersize=12, 
                                markeredgecolor='white', markeredgewidth=2)
                         
+                        # Show direction arrow
                         if show_direction:
                             dir_vec = drone.get_direction_vector()
                             arrow_length = 30
@@ -254,7 +319,22 @@ class Map:
                     
                     if not any_active:
                         animation_complete = True
+                        # Print summary when all drones are done
+                        print(f"\n{'#'*60}")
+                        print(f"ANIMATION COMPLETED")
+                        print(f"Total drones spawned: {self.drone_counter}")
+                        print(f"Total moves executed: {total_moves}")
+                        print(f"Total trajectories saved: {len(all_trajectories)}")
+                        print(f"\nTrajectory summary:")
+                        for i, traj_data in enumerate(all_trajectories, 1):
+                            traj = traj_data['trajectory']
+                            color = traj_data['color']
+                            if len(traj) >= 2:
+                                distance = np.sqrt((traj[-1][0] - traj[0][0])**2 + (traj[-1][1] - traj[0][1])**2)
+                                print(f"  Drone {i} ({color}): {len(traj)} points, distance: {distance:.2f} units")
+                        print(f"{'#'*60}\n")
                 
+                # Draw boundaries and vertical line
                 boundary_rect = plt.Rectangle((0, 0), self.width, self.height, 
                                              fill=False, edgecolor='green', linewidth=3, 
                                              linestyle='--')
@@ -262,17 +342,19 @@ class Map:
                 
                 ax.axvline(x=vertical_line_x, color='red', linewidth=2, linestyle='-', alpha=0.7, label=f'x={vertical_line_x}')
                 
+                # Set display parameters
                 ax.set_xlim(0, self.width)
                 ax.set_ylim(0, self.height)
                 ax.set_xlabel("X Coordinate", fontsize=10)
                 ax.set_ylabel("Y Coordinate", fontsize=10)
                 
+                # Update title
                 if animation_complete:
-                    ax.set_title(f"Drone Trajectory Analysis - Completed\nTotal Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nPress 'q' to quit", 
+                    ax.set_title(f"Drone Trajectory Analysis - Completed (Polynomial Prediction)\nTotal Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nPress 'q' to quit", 
                                fontsize=14, fontweight='bold', color='green')
                 else:
                     active_count = sum(1 for d in drones_data if d['active'])
-                    ax.set_title(f"Drone Trajectory Monitoring System\nActive Drones: {active_count}/{num_drones} | Total Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nPress 'q' to quit", 
+                    ax.set_title(f"Drone Trajectory Monitoring System (Polynomial Prediction)\nActive Drones: {active_count}/{num_drones} | Total Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nPress 'q' to quit", 
                                fontsize=12, fontweight='bold')
                 
                 ax.grid(True, alpha=0.3)

@@ -1,7 +1,7 @@
 from map import Map
 
 if __name__ == "__main__":
-    image_path = "/Users/sansrozpierducha/hackathon/polish_map.png" 
+    image_path = "/Users/sansrozpierducha/hackathon/Project/polish_map.png" 
     
     # Initialize map with 1920x1080 resolution
     map_with_image = Map(
