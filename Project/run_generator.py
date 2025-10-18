@@ -25,7 +25,8 @@ if __name__ == "__main__":
 
     print("Starting drone localization generator...")
     print("Using polynomial fitting: Linear (2 points) or Quadratic (3+ points)")
+
     
     while True:
-        schedule.run_pending()  
+        schedule.run_pending()
         time.sleep(0.1)

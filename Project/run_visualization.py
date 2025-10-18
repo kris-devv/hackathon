@@ -15,7 +15,7 @@ if __name__ == "__main__":
     
     # Animate 5 drones simultaneously with trajectory prediction
     map_with_image.animate_multiple_drones(
-        num_drones=5,
+        num_drones=1,
         spawn_position='right', 
         interval=0.05,
         show_trajectory=True, 
