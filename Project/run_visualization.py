@@ -31,7 +31,6 @@ if __name__ == "__main__":
     radar_manager = RadarBorderManager()
     
     # Add radars with coordinates (x, y, radius, name)
-    # You can customize these coordinates
     radars = [
         (1280, 200, 180, "Border-Radar-1"),
         (1280, 550, 180, "Border-Radar-2"),
@@ -43,9 +42,10 @@ if __name__ == "__main__":
     print("SYSTEM INITIALIZED")
     print(f"Cities: {len(city_manager.zones)}")
     print(f"Radars: {len(radar_manager.radars)}")
+    print("Data will be saved to: data.json")
     print("="*60 + "\n")
     
-    # Animate 5 drones simultaneously with trajectory prediction, city zones and radars
+    # Animate 5 drones simultaneously with trajectory prediction, city zones, radars and data saving
     map_with_image.animate_multiple_drones(
         num_drones=5,
         spawn_position='right', 
@@ -54,7 +54,15 @@ if __name__ == "__main__":
         show_direction=True,
         show_prediction=True,
         speed=25,
-        barrier_x=900,
+        barrier_x=750,
         city_manager=city_manager,
-        radar_manager=radar_manager  # Pass radar manager to animation
+        radar_manager=radar_manager,
+        save_data=True,  # Enable data saving
+        output_file="data.json"  # Output file name
     )
+    
+    print("\n" + "="*60)
+    print("SIMULATION ENDED")
+    print("Check 'data.json' for detailed drone data")
+    print("Check 'simulation_summary.txt' for human-readable summary")
+    print("="*60 + "\n")

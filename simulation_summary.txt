@@ -1,0 +1,71 @@
+============================================================
+DRONE SIMULATION SUMMARY
+============================================================
+
+Start Time: 2025-10-18T15:30:26.685941
+End Time: 2025-10-18T15:30:34.915988
+Duration: 8.23 seconds
+
+Total Drones: 5
+Total Moves: 231
+Total Trajectories: 5
+
+============================================================
+DRONE DETAILS
+============================================================
+
+Drone #1 (blue)
+  Spawn: (1870.00, 598.66)
+  End: (749.02, 892.75)
+  Moves: 47
+  Distance: 1175.00
+  Avg Speed: 25.00
+  Max Speed: 25.00
+  Cities Visited: 0
+  Radars Detected: 1
+  Removal Reason: Crossed barrier at x=750
+
+Drone #2 (red)
+  Spawn: (1870.00, 763.37)
+  End: (736.59, 876.13)
+  Moves: 46
+  Distance: 1150.00
+  Avg Speed: 25.00
+  Max Speed: 25.00
+  Cities Visited: 1
+  Radars Detected: 1
+  Removal Reason: Crossed barrier at x=750
+
+Drone #3 (green)
+  Spawn: (1870.00, 497.87)
+  End: (731.41, 558.91)
+  Moves: 46
+  Distance: 1150.00
+  Avg Speed: 25.00
+  Max Speed: 25.00
+  Cities Visited: 1
+  Radars Detected: 1
+  Removal Reason: Crossed barrier at x=750
+
+Drone #4 (purple)
+  Spawn: (1870.00, 557.34)
+  End: (734.57, 478.12)
+  Moves: 46
+  Distance: 1150.00
+  Avg Speed: 25.00
+  Max Speed: 25.00
+  Cities Visited: 0
+  Radars Detected: 1
+  Removal Reason: Crossed barrier at x=750
+
+Drone #5 (orange)
+  Spawn: (1870.00, 614.79)
+  End: (934.05, -17.02)
+  Moves: 46
+  Distance: 1150.00
+  Avg Speed: 25.00
+  Max Speed: 25.00
+  Cities Visited: 1
+  Radars Detected: 1
+  Removal Reason: Out of bounds
+

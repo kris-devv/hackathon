@@ -4,6 +4,7 @@ from PIL import Image
 from drone import Drone
 from predict import Prediction
 from flight_path_generator import generate_flight_path
+from save_data import DroneDataCollector
 
 class Map:
     """
@@ -135,15 +136,64 @@ class Map:
         if drone in self.active_drones:
             self.active_drones.remove(drone)
             drone.is_active = False
-
-    def animate_multiple_drones(self, num_drones: int = 5, spawn_position: str = 'right',
-                               interval: float = 0.02, show_trajectory: bool = True,
+    
+    def get_drone_count(self) -> int:
+        """
+        Get the number of active drones.
+        
+        Returns:
+            int: Number of active drones
+        """
+        return len(self.active_drones)
+    
+    def get_all_drones(self) -> list[Drone]:
+        """
+        Get list of all active drones.
+        
+        Returns:
+            list[Drone]: List of active drone objects
+        """
+        return self.active_drones.copy()
+    
+    def clear_all_drones(self):
+        """
+        Remove all drones from the map.
+        """
+        for drone in self.active_drones[:]:
+            self.remove_drone(drone)
+    
+    def get_drones_in_area(self, x_min: float, y_min: float, x_max: float, y_max: float) -> list[Drone]:
+        """
+        Get all drones within a rectangular area.
+        
+        Args:
+            x_min (float): Minimum X coordinate
+            y_min (float): Minimum Y coordinate
+            x_max (float): Maximum X coordinate
+            y_max (float): Maximum Y coordinate
+            
+        Returns:
+            list[Drone]: List of drones in the specified area
+        """
+        drones_in_area = []
+        for drone in self.active_drones:
+            x, y = drone.coordinate
+            if x_min <= x <= x_max and y_min <= y <= y_max:
+                drones_in_area.append(drone)
+        return drones_in_area
+    
+    def animate_multiple_drones(self, num_drones: int = 5, spawn_position: str = 'right', 
+                               interval: float = 0.02, show_trajectory: bool = True, 
                                show_direction: bool = True, show_prediction: bool = True,
-                               speed: float = 10, barrier_x: float = 900, 
-                               city_manager=None, radar_manager=None):
+                               speed: float = 10, barrier_x: float = 750, 
+                               city_manager=None, radar_manager=None,
+                               save_data: bool = True, output_file: str = "data.json"):
         """
         Animate multiple drones simultaneously with polynomial trajectory prediction, city zones and radar detection.
         """
+        # Initialize data collector
+        data_collector = DroneDataCollector(output_file) if save_data else None
+        
         plt.ion()
         fig, ax = plt.subplots(figsize=(14, 8))
         fig.canvas.manager.set_window_title('Drone Trajectory Monitoring System')
@@ -156,18 +206,40 @@ class Map:
         drones_data = []
         colors = ['blue', 'red', 'green', 'purple', 'orange', 'cyan', 'magenta', 'yellow']
         
+        # Tracking for zone visits
+        drone_zone_tracking = {}
+        
         for i in range(num_drones):
             drone = self.spawn_new_drone(spawn_position)
             drone.drone_color = colors[i % len(colors)]
             moves = generate_flight_path('random_walk', num_moves=100, speed=speed, 
                                         start_angle=180, max_angle_change=8)
+            
+            # Add drone to data collector
+            drone_id = data_collector.add_drone(drone, drone.drone_color) if data_collector else i
+            
             drones_data.append({
                 'drone': drone,
+                'drone_id': drone_id,
                 'moves': moves,
                 'move_index': 0,
                 'active': True,
                 'color': drone.drone_color
             })
+            
+            # Initialize zone tracking
+            drone_zone_tracking[drone_id] = {
+                'current_cities': set(),
+                'current_radars': set()
+            }
+            
+            if data_collector:
+                data_collector.add_event("drone_spawned", {
+                    "drone_id": drone_id,
+                    "color": drone.drone_color,
+                    "position": {"x": drone.coordinate[0], "y": drone.coordinate[1]},
+                    "spawn_edge": spawn_position
+                })
         
         def on_key(event):
             nonlocal running
@@ -198,6 +270,7 @@ class Map:
                         
                         any_active = True
                         drone = drone_data['drone']
+                        drone_id = drone_data['drone_id']
                         moves = drone_data['moves']
                         move_index = drone_data['move_index']
                         
@@ -213,27 +286,55 @@ class Map:
                         total_moves += 1
                         drone_data['move_index'] = move_index + 1
                         
+                        # Update position in data collector
+                        if data_collector:
+                            data_collector.update_drone_position(
+                                drone_id,
+                                drone.coordinate[0],
+                                drone.coordinate[1],
+                                speed=drone.get_speed(),
+                                direction=drone.get_direction()
+                            )
+                        
+                        # Check zone visits
+                        if city_manager and data_collector:
+                            current_cities = set()
+                            for zone in city_manager.zones:
+                                if zone.check_drone_inside(drone.coordinate[0], drone.coordinate[1]):
+                                    current_cities.add(zone.name)
+                                    # Check if this is a new entry
+                                    if zone.name not in drone_zone_tracking[drone_id]['current_cities']:
+                                        data_collector.add_zone_visit(drone_id, "city", zone.name)
+                            drone_zone_tracking[drone_id]['current_cities'] = current_cities
+                        
+                        if radar_manager and data_collector:
+                            current_radars = set()
+                            for radar in radar_manager.radars:
+                                if radar.check_drone_inside(drone.coordinate[0], drone.coordinate[1]):
+                                    current_radars.add(radar.name)
+                                    # Check if this is a new detection
+                                    if radar.name not in drone_zone_tracking[drone_id]['current_radars']:
+                                        data_collector.add_zone_visit(drone_id, "radar", radar.name)
+                                        data_collector.add_event("radar_detection", {
+                                            "drone_id": drone_id,
+                                            "radar_name": radar.name,
+                                            "position": {"x": drone.coordinate[0], "y": drone.coordinate[1]}
+                                        })
+                            drone_zone_tracking[drone_id]['current_radars'] = current_radars
+                        
                         # Check boundaries and barrier
                         if drone.is_out_of_bounds(self.width, self.height, margin=0) or drone.coordinate[0] <= barrier_x:
-                            print(f"\n{'*'*60}")
-                            print(f"DRONE REMOVED (color: {drone.drone_color})")
-                            print(f"Final position: ({drone.coordinate[0]:.2f}, {drone.coordinate[1]:.2f})")
-                            print(f"Total trajectory points: {len(drone.trajectory)}")
-                            print(f"Reason: {'Out of bounds' if drone.is_out_of_bounds(self.width, self.height, margin=0) else f'Crossed barrier at x={barrier_x}'}")
+                            reason = 'Out of bounds' if drone.is_out_of_bounds(self.width, self.height, margin=0) else f'Crossed barrier at x={barrier_x}'
                             
-                            if len(drone.trajectory) >= 2:
-                                start_pos = drone.trajectory[0]
-                                end_pos = drone.trajectory[-1]
-                                distance = np.sqrt((end_pos[0] - start_pos[0])**2 + (end_pos[1] - start_pos[1])**2)
-                                print(f"Start position: ({start_pos[0]:.2f}, {start_pos[1]:.2f})")
-                                print(f"End position: ({end_pos[0]:.2f}, {end_pos[1]:.2f})")
-                                print(f"Total distance traveled: {distance:.2f} units")
-                            
-                            print(f"Last 5 trajectory points:")
-                            for i, point in enumerate(drone.trajectory[-5:], 1):
-                                print(f"  {i}. ({point[0]:.2f}, {point[1]:.2f})")
-                            
-                            print(f"{'*'*60}\n")
+                            if data_collector:
+                                data_collector.remove_drone(
+                                    drone_id,
+                                    drone.coordinate[0],
+                                    drone.coordinate[1],
+                                    reason=reason,
+                                    total_distance=drone.get_total_distance(),
+                                    average_speed=drone.get_average_speed()
+                                )
                             
                             all_trajectories.append({
                                 'trajectory': drone.trajectory.copy(),
@@ -247,9 +348,9 @@ class Map:
                         if show_trajectory and len(drone.trajectory) > 1:
                             trajectory_array = np.array(drone.trajectory)
                             ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
-                                   color=drone.drone_color, alpha=0.6, linewidth=2)
+                                   color=drone.drone_color, alpha=0.8, linewidth=3)
                             ax.plot(trajectory_array[:, 0], trajectory_array[:, 1], 
-                                   'o', color=drone.drone_color, markersize=4, alpha=0.5)
+                                   'o', color=drone.drone_color, markersize=5, alpha=0.7)
                         
                         # Show polynomial prediction
                         if show_prediction and len(drone.trajectory) >= 3:
@@ -261,27 +362,22 @@ class Map:
                                 pred_x = [p['x'] for p in pred_points]
                                 pred_y = [p['y'] for p in pred_points]
                                 
-                                print(f"\n{'='*60}")
-                                print(f"Drone (color: {drone.drone_color}) at position: ({drone.coordinate[0]:.2f}, {drone.coordinate[1]:.2f})")
-                                print(f"Current trajectory length: {len(drone.trajectory)} points")
-                                
-                                if 'coefficients' in prediction:
+                                # Save prediction to data collector
+                                if data_collector and 'coefficients' in prediction:
                                     coeffs = prediction['coefficients']
-                                    if len(coeffs) == 2:
-                                        print(f"Polynomial type: Linear (y = {coeffs[0]:.4f}x + {coeffs[1]:.4f})")
-                                    else:
-                                        print(f"Polynomial type: Quadratic (y = {coeffs[0]:.4f}x² + {coeffs[1]:.4f}x + {coeffs[2]:.4f})")
-                                    print(f"Coefficients: {coeffs}")
+                                    poly_type = 'Linear' if len(coeffs) == 2 else 'Quadratic'
+                                    data_collector.add_prediction(
+                                        drone_id,
+                                        pred_points,
+                                        coefficients=coeffs,
+                                        polynomial_type=poly_type
+                                    )
                                 
-                                print(f"Predicted points:")
-                                for i, point in enumerate(pred_points, 1):
-                                    print(f"  {i}. x={point['x']:.2f}, y={point['y']:.2f}")
-                                print(f"{'='*60}\n")
-                                
+                                # Draw predicted trajectory as dotted line WITHOUT markers
                                 ax.plot(pred_x, pred_y, 
-                                       color=drone.drone_color, alpha=0.5, 
-                                       linewidth=2, linestyle=':', marker='x', markersize=10,
-                                       markeredgewidth=2, label=f'Prediction (poly)')
+                                       color=drone.drone_color, alpha=0.7, 
+                                       linewidth=3, linestyle=':', 
+                                       label=f'Prediction (poly)')
                                 
                                 if 'coefficients' in prediction:
                                     from numpy import poly1d
@@ -293,8 +389,8 @@ class Map:
                                     y_range = poly_func(x_range)
                                     
                                     ax.plot(x_range, y_range, 
-                                           color=drone.drone_color, alpha=0.3, 
-                                           linewidth=1, linestyle='--')
+                                           color=drone.drone_color, alpha=0.5, 
+                                           linewidth=2, linestyle='--')
                         
                         # Draw drone
                         ax.plot(drone.coordinate[0], drone.coordinate[1], 
@@ -307,24 +403,16 @@ class Map:
                             arrow_length = 30
                             ax.arrow(drone.coordinate[0], drone.coordinate[1],
                                     dir_vec[0] * arrow_length, dir_vec[1] * arrow_length,
-                                    head_width=15, head_length=15, fc=drone.drone_color, 
-                                    ec='white', linewidth=1, alpha=0.6)
+                                    head_width=15, head_length=15, fc='black', 
+                                    ec='black', linewidth=2, alpha=0.9)
                     
                     if not any_active:
                         animation_complete = True
-                        print(f"\n{'#'*60}")
-                        print(f"ANIMATION COMPLETED")
-                        print(f"Total drones spawned: {self.drone_counter}")
-                        print(f"Total moves executed: {total_moves}")
-                        print(f"Total trajectories saved: {len(all_trajectories)}")
-                        print(f"\nTrajectory summary:")
-                        for i, traj_data in enumerate(all_trajectories, 1):
-                            traj = traj_data['trajectory']
-                            color = traj_data['color']
-                            if len(traj) >= 2:
-                                distance = np.sqrt((traj[-1][0] - traj[0][0])**2 + (traj[-1][1] - traj[0][1])**2)
-                                print(f"  Drone {i} ({color}): {len(traj)} points, distance: {distance:.2f} units")
-                        print(f"{'#'*60}\n")
+                        
+                        if data_collector:
+                            data_collector.finalize_simulation()
+                            data_collector.save_to_file()
+                            data_collector.export_summary("simulation_summary.txt")
                 
                 # Update and draw city zones if manager is provided
                 if city_manager:
@@ -335,25 +423,6 @@ class Map:
                 if radar_manager:
                     radar_manager.update_all_radars(self.active_drones)
                     radar_manager.draw_all_radars(ax)
-                    
-                    # Print radar status periodically
-                    if total_moves % 100 == 0 and total_moves > 0:
-                        radar_manager.print_status()
-                
-                # Print combined statistics
-                if total_moves % 50 == 0 and (city_manager or radar_manager):
-                    print(f"\n[Move {total_moves}]")
-                    if city_manager:
-                        stats = city_manager.get_zone_statistics()
-                        occupied_zones = city_manager.get_occupied_zones()
-                        if occupied_zones:
-                            print(f"City Zones - Occupied: {stats['occupied_zones']}/{stats['total_zones']}")
-                    
-                    if radar_manager:
-                        stats = radar_manager.get_radar_statistics()
-                        detecting = radar_manager.get_detecting_radars()
-                        if detecting:
-                            print(f"Radars - Detecting: {stats['detecting_radars']}/{stats['total_radars']} ({stats['total_drones_detected']} drones)")
                 
                 # Draw boundaries
                 boundary_rect = plt.Rectangle((0, 0), self.width, self.height, 
@@ -369,7 +438,7 @@ class Map:
                 
                 # Update title
                 if animation_complete:
-                    ax.set_title(f"Drone Trajectory Analysis - Completed (Polynomial Prediction)\nTotal Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nPress 'q' to quit", 
+                    ax.set_title(f"Drone Trajectory Analysis - Completed (Polynomial Prediction)\nTotal Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nData saved to {output_file}\nPress 'q' to quit", 
                                fontsize=14, fontweight='bold', color='green')
                 else:
                     active_count = sum(1 for d in drones_data if d['active'])
@@ -396,6 +465,12 @@ class Map:
             except KeyboardInterrupt:
                 running = False
                 break
+        
+        # Final save on exit
+        if data_collector and not animation_complete:
+            data_collector.finalize_simulation()
+            data_collector.save_to_file()
+            data_collector.export_summary("simulation_summary.txt")
         
         plt.ioff()
         plt.close()
