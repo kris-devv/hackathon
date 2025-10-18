@@ -135,14 +135,14 @@ class Map:
         if drone in self.active_drones:
             self.active_drones.remove(drone)
             drone.is_active = False
-    
-    def animate_multiple_drones(self, num_drones: int = 5, spawn_position: str = 'right', 
-                               interval: float = 0.02, show_trajectory: bool = True, 
+
+    def animate_multiple_drones(self, num_drones: int = 5, spawn_position: str = 'right',
+                               interval: float = 0.02, show_trajectory: bool = True,
                                show_direction: bool = True, show_prediction: bool = True,
-                               speed: float = 10, barrier_x: float = 750, 
-                               vertical_line_x: float = 1380):
+                               speed: float = 10, barrier_x: float = 900, 
+                               city_manager=None, radar_manager=None):
         """
-        Animate multiple drones simultaneously with polynomial trajectory prediction.
+        Animate multiple drones simultaneously with polynomial trajectory prediction, city zones and radar detection.
         """
         plt.ion()
         fig, ax = plt.subplots(figsize=(14, 8))
@@ -215,14 +215,12 @@ class Map:
                         
                         # Check boundaries and barrier
                         if drone.is_out_of_bounds(self.width, self.height, margin=0) or drone.coordinate[0] <= barrier_x:
-                            # Print final trajectory information before removing
                             print(f"\n{'*'*60}")
                             print(f"DRONE REMOVED (color: {drone.drone_color})")
                             print(f"Final position: ({drone.coordinate[0]:.2f}, {drone.coordinate[1]:.2f})")
                             print(f"Total trajectory points: {len(drone.trajectory)}")
                             print(f"Reason: {'Out of bounds' if drone.is_out_of_bounds(self.width, self.height, margin=0) else f'Crossed barrier at x={barrier_x}'}")
                             
-                            # Print trajectory summary
                             if len(drone.trajectory) >= 2:
                                 start_pos = drone.trajectory[0]
                                 end_pos = drone.trajectory[-1]
@@ -231,7 +229,6 @@ class Map:
                                 print(f"End position: ({end_pos[0]:.2f}, {end_pos[1]:.2f})")
                                 print(f"Total distance traveled: {distance:.2f} units")
                             
-                            # Print last few trajectory points
                             print(f"Last 5 trajectory points:")
                             for i, point in enumerate(drone.trajectory[-5:], 1):
                                 print(f"  {i}. ({point[0]:.2f}, {point[1]:.2f})")
@@ -264,7 +261,6 @@ class Map:
                                 pred_x = [p['x'] for p in pred_points]
                                 pred_y = [p['y'] for p in pred_points]
                                 
-                                # Print prediction information
                                 print(f"\n{'='*60}")
                                 print(f"Drone (color: {drone.drone_color}) at position: ({drone.coordinate[0]:.2f}, {drone.coordinate[1]:.2f})")
                                 print(f"Current trajectory length: {len(drone.trajectory)} points")
@@ -282,19 +278,16 @@ class Map:
                                     print(f"  {i}. x={point['x']:.2f}, y={point['y']:.2f}")
                                 print(f"{'='*60}\n")
                                 
-                                # Draw predicted trajectory as dotted line with larger markers
                                 ax.plot(pred_x, pred_y, 
                                        color=drone.drone_color, alpha=0.5, 
                                        linewidth=2, linestyle=':', marker='x', markersize=10,
                                        markeredgewidth=2, label=f'Prediction (poly)')
                                 
-                                # Draw polynomial curve if coefficients available
                                 if 'coefficients' in prediction:
                                     from numpy import poly1d
                                     coeffs = prediction['coefficients']
                                     poly_func = poly1d(coeffs)
                                     
-                                    # Generate smooth curve
                                     x_range = np.linspace(drone.trajectory[-5][0] if len(drone.trajectory) >= 5 else drone.trajectory[0][0], 
                                                          pred_x[-1], 50)
                                     y_range = poly_func(x_range)
@@ -319,7 +312,6 @@ class Map:
                     
                     if not any_active:
                         animation_complete = True
-                        # Print summary when all drones are done
                         print(f"\n{'#'*60}")
                         print(f"ANIMATION COMPLETED")
                         print(f"Total drones spawned: {self.drone_counter}")
@@ -334,13 +326,40 @@ class Map:
                                 print(f"  Drone {i} ({color}): {len(traj)} points, distance: {distance:.2f} units")
                         print(f"{'#'*60}\n")
                 
-                # Draw boundaries and vertical line
+                # Update and draw city zones if manager is provided
+                if city_manager:
+                    city_manager.update_all_zones(self.active_drones)
+                    city_manager.draw_all_zones(ax)
+                
+                # Update and draw radar zones if manager is provided
+                if radar_manager:
+                    radar_manager.update_all_radars(self.active_drones)
+                    radar_manager.draw_all_radars(ax)
+                    
+                    # Print radar status periodically
+                    if total_moves % 100 == 0 and total_moves > 0:
+                        radar_manager.print_status()
+                
+                # Print combined statistics
+                if total_moves % 50 == 0 and (city_manager or radar_manager):
+                    print(f"\n[Move {total_moves}]")
+                    if city_manager:
+                        stats = city_manager.get_zone_statistics()
+                        occupied_zones = city_manager.get_occupied_zones()
+                        if occupied_zones:
+                            print(f"City Zones - Occupied: {stats['occupied_zones']}/{stats['total_zones']}")
+                    
+                    if radar_manager:
+                        stats = radar_manager.get_radar_statistics()
+                        detecting = radar_manager.get_detecting_radars()
+                        if detecting:
+                            print(f"Radars - Detecting: {stats['detecting_radars']}/{stats['total_radars']} ({stats['total_drones_detected']} drones)")
+                
+                # Draw boundaries
                 boundary_rect = plt.Rectangle((0, 0), self.width, self.height, 
                                              fill=False, edgecolor='green', linewidth=3, 
                                              linestyle='--')
                 ax.add_patch(boundary_rect)
-                
-                ax.axvline(x=vertical_line_x, color='red', linewidth=2, linestyle='-', alpha=0.7, label=f'x={vertical_line_x}')
                 
                 # Set display parameters
                 ax.set_xlim(0, self.width)
@@ -354,8 +373,18 @@ class Map:
                                fontsize=14, fontweight='bold', color='green')
                 else:
                     active_count = sum(1 for d in drones_data if d['active'])
-                    ax.set_title(f"Drone Trajectory Monitoring System (Polynomial Prediction)\nActive Drones: {active_count}/{num_drones} | Total Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}\nPress 'q' to quit", 
-                               fontsize=12, fontweight='bold')
+                    title_text = f"Drone Trajectory Monitoring System (Polynomial Prediction)\nActive Drones: {active_count}/{num_drones} | Total Moves: {total_moves} | Past Trajectories: {len(all_trajectories)}"
+                    
+                    if city_manager:
+                        stats = city_manager.get_zone_statistics()
+                        title_text += f" | Cities: {stats['occupied_zones']}/{stats['total_zones']}"
+                    
+                    if radar_manager:
+                        stats = radar_manager.get_radar_statistics()
+                        title_text += f" | Radars: {stats['detecting_radars']}/{stats['total_radars']}"
+                    
+                    title_text += "\nPress 'q' to quit"
+                    ax.set_title(title_text, fontsize=12, fontweight='bold')
                 
                 ax.grid(True, alpha=0.3)
                 plt.tight_layout()
